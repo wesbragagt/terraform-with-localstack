@@ -1,0 +1,48 @@
+version: '3.0'
+
+networks:
+  default:
+    driver: bridge
+
+services:
+  localstack:
+    image: localstack/localstack:0.14.2
+    environment: 
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - EDGE_PORT=4566
+      - SERVICES=sns
+    ports:
+      - '4566-4597:4566-4597'
+    volumes:
+      - "${TMPDIR:-/tmp/localstack}:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+
+    healthcheck:
+      test: ["CMD", "bash", "-c", "awslocal sns list-topics"]
+      interval: 1s
+      timeout: 10s
+      start_period: 1s
+  terraform:
+    volumes:
+      - ./main.tf:/main.tf
+      - ./localstack/seed.sh:/seed/seed.sh
+    restart: on-failure:2 
+    image: hashicorp/terraform 
+    depends_on:
+      localstack:
+        condition: service_healthy
+    entrypoint: []
+    command: >
+      sh -c "terraform init && terraform apply -auto-approve -lock=false"
+
+  test:
+    image: localstack/localstack:0.14.2
+    
+    depends_on:
+      terraform:
+        condition: service_completed_successfully 
+    entrypoint: []
+    command: bash -c "awslocal --endpoint-url=http://localstack:4566 sns list-topics"
